@@ -40,6 +40,8 @@ public class UserService {
         // Encrypt password
         user.setPassword(passwordEncoder.encode(user.getPassword()));
 
+        user.setActive(true);
+        
         // Set default role
         if (user.getRole() == null) {
             user.setRole(Role.USER);
