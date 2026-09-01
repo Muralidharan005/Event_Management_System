@@ -11,6 +11,8 @@ import com.eventhub.event_management_system.exception.InsufficientTicketExceptio
 import com.eventhub.event_management_system.exception.ResourceNotFoundException;
 import com.eventhub.event_management_system.exception.UnauthorizedException;
 import com.eventhub.event_management_system.repository.BookingRepository;
+import com.eventhub.event_management_system.repository.PaymentRepository;
+import com.eventhub.event_management_system.repository.TicketRepository;
 import com.eventhub.event_management_system.repository.TicketTypeRepository;
 import com.eventhub.event_management_system.repository.UserRepository;
 
@@ -28,15 +30,21 @@ public class BookingService {
     private final BookingRepository bookingRepository;
     private final TicketTypeRepository ticketTypeRepository;
     private final UserRepository userRepository;
+    private final TicketRepository ticketRepository;
+    private final PaymentRepository paymentRepository;
 
     public BookingService(
             BookingRepository bookingRepository,
             TicketTypeRepository ticketTypeRepository,
-            UserRepository userRepository) {
+            UserRepository userRepository,
+            TicketRepository ticketRepository,
+            PaymentRepository paymentRepository) {
 
         this.bookingRepository = bookingRepository;
         this.ticketTypeRepository = ticketTypeRepository;
         this.userRepository = userRepository;
+        this.ticketRepository = ticketRepository;
+        this.paymentRepository = paymentRepository;
     }
 
     @Transactional
@@ -189,6 +197,55 @@ public class BookingService {
                 bookingRepository.save(booking);
 
         return convertToResponse(updatedBooking);
+    }
+
+    public List<BookingResponse> getOrganizerBookings(String organizerEmail) {
+        User organizer = userRepository.findByEmail(organizerEmail)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+
+        return bookingRepository.findByEventOrganizerId(organizer.getId())
+                .stream()
+                .map(this::convertToResponse)
+                .toList();
+    }
+
+    public List<BookingResponse> getOrganizerEventBookings(Long eventId, String organizerEmail) {
+        User organizer = userRepository.findByEmail(organizerEmail)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+
+        return bookingRepository.findByEventIdAndEventOrganizerId(eventId, organizer.getId())
+                .stream()
+                .map(this::convertToResponse)
+                .toList();
+    }
+
+    @Transactional
+    public void deleteBookingByOrganizer(Long bookingId, String organizerEmail) {
+        User organizer = userRepository.findByEmail(organizerEmail)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+
+        Booking booking = bookingRepository.findById(bookingId)
+                .orElseThrow(() -> new ResourceNotFoundException("Booking not found"));
+
+        if (!booking.getEvent().getOrganizer().getId().equals(organizer.getId())) {
+            throw new UnauthorizedException("You are not authorized to delete bookings for this event");
+        }
+
+        // Return tickets to inventory if not already cancelled
+        if (booking.getStatus() != BookingStatus.CANCELLED) {
+            TicketType ticketType = booking.getTicketType();
+            ticketType.setAvailableQuantity(ticketType.getAvailableQuantity() + booking.getQuantity());
+            ticketTypeRepository.save(ticketType);
+        }
+
+        // Delete associated ticket
+        ticketRepository.findByBookingId(bookingId).ifPresent(ticketRepository::delete);
+
+        // Delete associated payment
+        paymentRepository.findByBookingId(bookingId).ifPresent(paymentRepository::delete);
+
+        // Delete booking record
+        bookingRepository.delete(booking);
     }
 
     private BookingResponse convertToResponse(

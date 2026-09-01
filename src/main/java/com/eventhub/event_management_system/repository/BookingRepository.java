@@ -15,6 +15,10 @@ public interface BookingRepository
 
     List<Booking> findByEventId(Long eventId);
 
+    List<Booking> findByEventOrganizerId(Long organizerId);
+
+    List<Booking> findByEventIdAndEventOrganizerId(Long eventId, Long organizerId);
+
     List<Booking> findByStatus(BookingStatus status);
     
     long countByStatus(BookingStatus status);

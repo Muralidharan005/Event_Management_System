@@ -47,6 +47,11 @@ public class SecurityConfig {
                         
                         .requestMatchers(
                                 org.springframework.http.HttpMethod.GET,
+                                "/events/my-events"
+                        ).authenticated()
+
+                        .requestMatchers(
+                                org.springframework.http.HttpMethod.GET,
                                 "/events/**"
                         ).authenticated()
 

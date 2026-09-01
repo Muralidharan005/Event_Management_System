@@ -36,6 +36,23 @@ public class TicketController {
         return ResponseEntity.ok(response);
     }
 
+    // Get ticket by booking ID
+    @GetMapping("/booking/{bookingId}")
+    public ResponseEntity<TicketResponse> getTicketByBooking(
+            @PathVariable Long bookingId,
+            Authentication authentication) {
+
+        User user = (User) authentication.getPrincipal();
+
+        TicketResponse response =
+                ticketService.getTicketByBookingId(
+                        bookingId,
+                        user.getEmail()
+                );
+
+        return ResponseEntity.ok(response);
+    }
+
     // Get ticket by ticket ID
     @GetMapping("/{ticketId}")
     public ResponseEntity<TicketResponse> getTicket(

@@ -54,10 +54,11 @@ public class TicketService {
 			throw new RuntimeException("Payment is not completed");
 		}
 
-		// Prevent duplicate ticket
+		// If ticket already exists for this booking, return the existing ticket
 		if (ticketRepository.existsByBookingId(bookingId)) {
-
-			throw new RuntimeException("Ticket already generated");
+			Ticket existing = ticketRepository.findByBookingId(bookingId)
+					.orElseThrow(() -> new ResourceNotFoundException("Ticket not found"));
+			return convertToResponse(existing);
 		}
 
 		Ticket ticket = new Ticket();
@@ -119,7 +120,6 @@ public class TicketService {
 	}
 
 	public TicketResponse getTicket(Long ticketId, String userEmail) {
-
 		User user = userRepository.findByEmail(userEmail)
 				.orElseThrow(() -> new ResourceNotFoundException("User not found"));
 
@@ -127,7 +127,20 @@ public class TicketService {
 				.orElseThrow(() -> new ResourceNotFoundException("Ticket not found"));
 
 		if (!ticket.getBooking().getUser().getId().equals(user.getId())) {
+			throw new UnauthorizedException("You are not authorized");
+		}
 
+		return convertToResponse(ticket);
+	}
+
+	public TicketResponse getTicketByBookingId(Long bookingId, String userEmail) {
+		User user = userRepository.findByEmail(userEmail)
+				.orElseThrow(() -> new ResourceNotFoundException("User not found"));
+
+		Ticket ticket = ticketRepository.findByBookingId(bookingId)
+				.orElseThrow(() -> new ResourceNotFoundException("Ticket not found for booking: " + bookingId));
+
+		if (!ticket.getBooking().getUser().getId().equals(user.getId())) {
 			throw new UnauthorizedException("You are not authorized");
 		}
 
