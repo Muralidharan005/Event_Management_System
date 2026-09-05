@@ -9,6 +9,7 @@ import org.springframework.web.bind.annotation.*;
 
 import com.eventhub.event_management_system.dto.CreateEventRequest;
 import com.eventhub.event_management_system.dto.EventResponse;
+import com.eventhub.event_management_system.dto.PageResponse;
 import com.eventhub.event_management_system.dto.UpdateEventRequest;
 import com.eventhub.event_management_system.entity.User;
 import com.eventhub.event_management_system.service.EventService;
@@ -43,13 +44,53 @@ public class EventController {
                 .body(response);
     }
 
-    // Get All Events
+    // Get All Events (Supports unpaginated list or paginated via ?page=0&size=6)
     @GetMapping
-    public ResponseEntity<List<EventResponse>> getAllEvents() {
-
+    public ResponseEntity<?> getAllEvents(
+            @RequestParam(required = false) Integer page,
+            @RequestParam(defaultValue = "6") int size,
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false) String category,
+            @RequestParam(required = false) String city,
+            @RequestParam(defaultValue = "eventDate") String sortBy,
+            @RequestParam(defaultValue = "asc") String sortDir
+    ) {
+        if (page != null) {
+            return ResponseEntity.ok(
+                    eventService.getPaginatedEvents(page, size, search, category, city, sortBy, sortDir)
+            );
+        }
         return ResponseEntity.ok(
                 eventService.getAllEvents()
         );
+    }
+
+    // Get Paginated Events with filtering & sorting
+    @GetMapping("/paginated")
+    public ResponseEntity<PageResponse<EventResponse>> getPaginatedEvents(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "6") int size,
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false) String category,
+            @RequestParam(required = false) String city,
+            @RequestParam(defaultValue = "eventDate") String sortBy,
+            @RequestParam(defaultValue = "asc") String sortDir
+    ) {
+        return ResponseEntity.ok(
+                eventService.getPaginatedEvents(page, size, search, category, city, sortBy, sortDir)
+        );
+    }
+
+    // Get Distinct Categories
+    @GetMapping("/categories")
+    public ResponseEntity<List<String>> getCategories() {
+        return ResponseEntity.ok(eventService.getAllCategories());
+    }
+
+    // Get Distinct Cities
+    @GetMapping("/cities")
+    public ResponseEntity<List<String>> getCities() {
+        return ResponseEntity.ok(eventService.getAllCities());
     }
 
     // Get Event By ID

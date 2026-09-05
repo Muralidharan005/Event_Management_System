@@ -52,8 +52,9 @@ public class SecurityConfig {
 
                         .requestMatchers(
                                 org.springframework.http.HttpMethod.GET,
+                                "/events",
                                 "/events/**"
-                        ).authenticated()
+                        ).permitAll()
 
                         .requestMatchers(
                                 org.springframework.http.HttpMethod.POST,

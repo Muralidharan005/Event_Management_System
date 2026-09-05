@@ -13,6 +13,10 @@ public interface BookingRepository
 
     List<Booking> findByUserId(Long userId);
 
+    List<Booking> findByUserIdOrderByBookingDateDesc(Long userId);
+
+    List<Booking> findByUserIdOrderByIdDesc(Long userId);
+
     List<Booking> findByEventId(Long eventId);
 
     List<Booking> findByEventOrganizerId(Long organizerId);
@@ -37,5 +41,16 @@ public interface BookingRepository
     	Long sumTicketsSold(
     	        @Param("organizerId") Long organizerId,
     	        @Param("status") BookingStatus status
+    	);
+
+    @Query("""
+    	       SELECT COALESCE(SUM(b.quantity), 0)
+    	       FROM Booking b
+    	       WHERE b.event.id = :eventId
+    	       AND b.status != :cancelledStatus
+    	       """)
+    	Long sumActiveBookedTicketsByEvent(
+    	        @Param("eventId") Long eventId,
+    	        @Param("cancelledStatus") BookingStatus cancelledStatus
     	);
 }

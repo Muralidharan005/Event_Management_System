@@ -4,6 +4,7 @@ import com.eventhub.event_management_system.dto.BookingResponse;
 import com.eventhub.event_management_system.dto.CreateBookingRequest;
 import com.eventhub.event_management_system.entity.Booking;
 import com.eventhub.event_management_system.entity.BookingStatus;
+import com.eventhub.event_management_system.entity.Event;
 import com.eventhub.event_management_system.entity.TicketType;
 import com.eventhub.event_management_system.entity.User;
 import com.eventhub.event_management_system.exception.BookingAlreadyCancelledException;
@@ -11,6 +12,7 @@ import com.eventhub.event_management_system.exception.InsufficientTicketExceptio
 import com.eventhub.event_management_system.exception.ResourceNotFoundException;
 import com.eventhub.event_management_system.exception.UnauthorizedException;
 import com.eventhub.event_management_system.repository.BookingRepository;
+import com.eventhub.event_management_system.repository.EventRepository;
 import com.eventhub.event_management_system.repository.PaymentRepository;
 import com.eventhub.event_management_system.repository.TicketRepository;
 import com.eventhub.event_management_system.repository.TicketTypeRepository;
@@ -32,19 +34,22 @@ public class BookingService {
     private final UserRepository userRepository;
     private final TicketRepository ticketRepository;
     private final PaymentRepository paymentRepository;
+    private final EventRepository eventRepository;
 
     public BookingService(
             BookingRepository bookingRepository,
             TicketTypeRepository ticketTypeRepository,
             UserRepository userRepository,
             TicketRepository ticketRepository,
-            PaymentRepository paymentRepository) {
+            PaymentRepository paymentRepository,
+            EventRepository eventRepository) {
 
         this.bookingRepository = bookingRepository;
         this.ticketTypeRepository = ticketTypeRepository;
         this.userRepository = userRepository;
         this.ticketRepository = ticketRepository;
         this.paymentRepository = paymentRepository;
+        this.eventRepository = eventRepository;
     }
 
     @Transactional
@@ -90,6 +95,16 @@ public class BookingService {
 
         ticketTypeRepository.save(ticketType);
 
+        // 5b. Reduce available seats in event
+        Event event = ticketType.getEvent();
+        if (event != null) {
+            int currentSeats = event.getAvailableSeats() != null
+                    ? event.getAvailableSeats()
+                    : event.getTotalCapacity();
+            event.setAvailableSeats(Math.max(0, currentSeats - request.getQuantity()));
+            eventRepository.save(event);
+        }
+
         // 6. Create booking
         Booking booking = new Booking();
 
@@ -130,7 +145,7 @@ public class BookingService {
                 ));
 
         return bookingRepository
-                .findByUserId(user.getId())
+                .findByUserIdOrderByBookingDateDesc(user.getId())
                 .stream()
                 .map(this::convertToResponse)
                 .toList();
@@ -188,6 +203,16 @@ public class BookingService {
 
         ticketTypeRepository.save(ticketType);
 
+        // Restore event available seats
+        Event event = booking.getEvent();
+        if (event != null) {
+            int currentSeats = event.getAvailableSeats() != null
+                    ? event.getAvailableSeats()
+                    : 0;
+            event.setAvailableSeats(Math.min(event.getTotalCapacity(), currentSeats + booking.getQuantity()));
+            eventRepository.save(event);
+        }
+
         // Cancel booking
         booking.setStatus(
                 BookingStatus.CANCELLED
@@ -236,6 +261,15 @@ public class BookingService {
             TicketType ticketType = booking.getTicketType();
             ticketType.setAvailableQuantity(ticketType.getAvailableQuantity() + booking.getQuantity());
             ticketTypeRepository.save(ticketType);
+
+            Event bEvent = booking.getEvent();
+            if (bEvent != null) {
+                int currentSeats = bEvent.getAvailableSeats() != null
+                        ? bEvent.getAvailableSeats()
+                        : 0;
+                bEvent.setAvailableSeats(Math.min(bEvent.getTotalCapacity(), currentSeats + booking.getQuantity()));
+                eventRepository.save(bEvent);
+            }
         }
 
         // Delete associated ticket
@@ -251,6 +285,8 @@ public class BookingService {
     private BookingResponse convertToResponse(
             Booking booking) {
 
+        String eventCategory = booking.getEvent() != null ? booking.getEvent().getCategory() : null;
+
         return new BookingResponse(
                 booking.getId(),
                 booking.getBookingNumber(),
@@ -260,6 +296,7 @@ public class BookingService {
 
                 booking.getEvent().getId(),
                 booking.getEvent().getTitle(),
+                eventCategory,
 
                 booking.getTicketType().getId(),
                 booking.getTicketType().getName(),

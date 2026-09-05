@@ -1,15 +1,23 @@
 package com.eventhub.event_management_system.service;
 
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.eventhub.event_management_system.dto.CreateEventRequest;
 import com.eventhub.event_management_system.dto.EventResponse;
+import com.eventhub.event_management_system.dto.PageResponse;
 import com.eventhub.event_management_system.dto.UpdateEventRequest;
+import com.eventhub.event_management_system.entity.BookingStatus;
 import com.eventhub.event_management_system.entity.Event;
 import com.eventhub.event_management_system.entity.EventStatus;
 import com.eventhub.event_management_system.entity.User;
 import com.eventhub.event_management_system.exception.ResourceNotFoundException;
+import com.eventhub.event_management_system.repository.BookingRepository;
 import com.eventhub.event_management_system.repository.EventRepository;
 import com.eventhub.event_management_system.repository.UserRepository;
 
@@ -20,11 +28,14 @@ public class EventService {
 
     private final EventRepository eventRepository;
     private final UserRepository userRepository;
+    private final BookingRepository bookingRepository;
 
     public EventService(EventRepository eventRepository,
-                        UserRepository userRepository) {
+                        UserRepository userRepository,
+                        BookingRepository bookingRepository) {
         this.eventRepository = eventRepository;
         this.userRepository = userRepository;
+        this.bookingRepository = bookingRepository;
     }
 
     public EventResponse createEvent(
@@ -67,6 +78,74 @@ public class EventService {
                 .stream()
                 .map(this::convertToResponse)
                 .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public PageResponse<EventResponse> getPaginatedEvents(
+            int page,
+            int size,
+            String search,
+            String category,
+            String city,
+            String sortBy,
+            String sortDir) {
+
+        String safeSortBy = switch (sortBy != null ? sortBy.toLowerCase() : "date") {
+            case "title" -> "title";
+            case "availableseats", "seats" -> "availableSeats";
+            case "totalcapacity", "capacity" -> "totalCapacity";
+            case "id" -> "id";
+            case "city" -> "city";
+            case "category" -> "category";
+            default -> "eventDate";
+        };
+
+        Sort.Direction direction = "desc".equalsIgnoreCase(sortDir)
+                ? Sort.Direction.DESC
+                : Sort.Direction.ASC;
+
+        Sort sort = Sort.by(direction, safeSortBy);
+        if (!"id".equals(safeSortBy)) {
+            sort = sort.and(Sort.by(direction, "id"));
+        }
+
+        int pageIndex = Math.max(0, page);
+        int pageSize = Math.max(1, Math.min(size, 100));
+        Pageable pageable = PageRequest.of(pageIndex, pageSize, sort);
+
+        String cleanSearch = (search != null && !search.trim().isEmpty()) ? search.trim() : null;
+        String cleanCategory = (category != null && !category.trim().equalsIgnoreCase("ALL") && !category.trim().isEmpty())
+                ? category.trim()
+                : null;
+        String cleanCity = (city != null && !city.trim().equalsIgnoreCase("ALL") && !city.trim().isEmpty())
+                ? city.trim()
+                : null;
+
+        Page<Event> eventPage = eventRepository.searchAndFilterEvents(cleanSearch, cleanCategory, cleanCity, pageable);
+
+        List<EventResponse> content = eventPage.getContent().stream()
+                .map(this::convertToResponse)
+                .toList();
+
+        return PageResponse.<EventResponse>builder()
+                .content(content)
+                .pageNumber(eventPage.getNumber())
+                .pageSize(eventPage.getSize())
+                .totalElements(eventPage.getTotalElements())
+                .totalPages(eventPage.getTotalPages())
+                .last(eventPage.isLast())
+                .first(eventPage.isFirst())
+                .hasNext(eventPage.hasNext())
+                .hasPrevious(eventPage.hasPrevious())
+                .build();
+    }
+
+    public List<String> getAllCategories() {
+        return eventRepository.findDistinctCategories();
+    }
+
+    public List<String> getAllCities() {
+        return eventRepository.findDistinctCities();
     }
 
     public EventResponse getEventById(Long id) {
@@ -140,6 +219,18 @@ public class EventService {
     }
 
     private EventResponse convertToResponse(Event event) {
+        Long bookedTickets = bookingRepository.sumActiveBookedTicketsByEvent(
+                event.getId(),
+                BookingStatus.CANCELLED
+        );
+        int totalCap = event.getTotalCapacity() != null ? event.getTotalCapacity() : 0;
+        int remainingSeats = Math.max(0, totalCap - (bookedTickets != null ? bookedTickets.intValue() : 0));
+
+        // Sync with DB if out of sync
+        if (event.getAvailableSeats() == null || !event.getAvailableSeats().equals(remainingSeats)) {
+            event.setAvailableSeats(remainingSeats);
+            eventRepository.save(event);
+        }
 
         return new EventResponse(
                 event.getId(),
@@ -153,7 +244,7 @@ public class EventService {
                 event.getEndTime(),
                 event.getImageUrl(),
                 event.getTotalCapacity(),
-                event.getAvailableSeats(),
+                remainingSeats,
                 event.getStatus(),
                 event.getOrganizer().getId(),
                 event.getOrganizer().getName()
